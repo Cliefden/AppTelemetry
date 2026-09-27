@@ -1,7 +1,7 @@
 # AppTelemetry
 
 One shared telemetry surface for the App Store family (Ariman, Contrarian,
-Lunker, Sextant, Stokked, ThenCam). It vendors the TelemetryDeck SwiftClient, so
+Lunker, Sextant, Stokked, ThenCam). It vendors the TelemetryDeck Swift SDK, so
 apps depend on **`AppTelemetry` only** and stop wiring the SDK directly. This
 unifies three things that had drifted per-app:
 
@@ -30,46 +30,109 @@ Telemetry.reset()                        // sign-out
 AppLog.reportError("sync", error, logger: AppLog.logger("sync"))
 ```
 
+## Opt-out
+
+The portfolio standard requires a user-facing analytics opt-out. The choice is
+persisted in `UserDefaults` (`Telemetry.optOutDefaultsKey`) and respected both
+before the SDK is initialized (an opted-out user's launch never initializes
+TelemetryDeck) and on every `signal`/`identify`.
+
+```swift
+Toggle("Share anonymous usage data", isOn: Binding(
+    get: { !Telemetry.isOptedOut },
+    set: { Telemetry.setOptedOut(!$0) }
+))
+```
+
+Opting back in initializes the SDK immediately if `start(appID:)` already ran.
+`Telemetry.start` is idempotent and every entry point is thread-safe.
+
 ## Integration
 
-### XcodeGen projects (Sextant)
+Always consume AppTelemetry **by git URL + version**. Xcode Cloud clones only
+the app's own repo, so a local `path: ../AppTelemetry` (or Xcode's
+"Add Local…") cannot resolve there and the cloud build fails.
 
-In `project.yml`, replace the `TelemetryDeck` package with the local package and
-depend on `AppTelemetry`:
+### XcodeGen projects
 
 ```yaml
 packages:
   AppTelemetry:
-    path: ../AppTelemetry
+    url: https://github.com/Cliefden/AppTelemetry.git
+    from: "1.0.0"   # use 1.1.0 once tagged (opt-out, SwiftSDK URL)
 targets:
-  Sextant:
+  MyApp:
     dependencies:
       - package: AppTelemetry
         product: AppTelemetry
 ```
 
-Then `xcodegen generate`.
+Then `xcodegen generate` and commit the resulting `Package.resolved`
+(`*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`) —
+see `xcode-cloud-setup/README.md` for why Xcode Cloud needs it.
 
-### `.xcodeproj` projects (Ariman, Contrarian, Lunker, Stokked, ThenCam)
+### `.xcodeproj` projects
 
-File → Add Package Dependencies → **Add Local…** → select
-`Apps-AppStore/AppTelemetry`. Add the `AppTelemetry` product to the app target
-(and to widget/watch targets that log). Remove the old direct SwiftClient
-package reference once the migration below is done.
+File → Add Package Dependencies → paste
+`https://github.com/Cliefden/AppTelemetry.git` → Up to Next Major. Add the
+`AppTelemetry` product to the app target (and to widget/watch targets that log).
+
+### TelemetryDeck package URL — remove the direct dependency
+
+AppTelemetry depends on TelemetryDeck via its **canonical URL
+`https://github.com/TelemetryDeck/SwiftSDK`** (the repo formerly named
+`SwiftClient`; GitHub redirects the old name and both resolve to the same
+revisions, e.g. 2.14.1 = `ad4a03e` in every app's `Package.resolved`).
+
+SwiftPM derives a package's identity from the last URL component, so
+`SwiftClient` and `SwiftSDK` are two *different* identities that both vend the
+`TelemetryDeck` product. An app that keeps its own TelemetryDeck reference while
+adopting AppTelemetry fails package resolution (duplicate product/module).
+Therefore, **in the same change that adds AppTelemetry**:
+
+1. Remove the app's direct `TelemetryDeck` / `SwiftClient` / `SwiftSDK`
+   package reference (and the product from every target).
+2. Replace `import TelemetryDeck` with `import AppTelemetry` — the SDK is not
+   re-exported; use `Telemetry.*` only.
+
+Apps that still wire TelemetryDeck directly (not yet migrated) should use the
+`SwiftSDK` URL too, so that a later migration doesn't mix identities.
 
 ## Per-app migration
 
 Each TelemetryDeck app keeps its **own app ID** — only the plumbing is shared.
+Status as of 2026-09-26:
 
 | App | Today | Change |
 |-----|-------|--------|
-| **Sextant** | `TelemetryDeck.initialize` in `SextantApp.init`; own `AppLog` | `Telemetry.start(appID: "7C3B4A88-…")`; delete `Models/AppLog.swift`; keep custom `sync`/`routing` categories via `AppLog.logger(_:)` |
-| **Lunker** | same as Sextant (`9F07E2B9-…`) | same; delete `Models/AppLog.swift` |
-| **Stokked** | `Analytics.start()` wrapper (`721F6963-…`) | `Telemetry.start(appID: "721F6963-…")`; delete `AnalyticsService.swift` (the guard/no-op is now built in) |
-| **ThenCam** | `Analytics.initialize` + string constants (`809BB813-…`) | `Telemetry.start(appID: "809BB813-…")`; map its camelCase names to `Signal.*` |
-| **Contrarian** | `TelemetryDeck.initialize` + `updateDefaultUserID` in `AppState` | `Telemetry.start(appID: Config.telemetryDeckAppID)`; swap the 3 `updateDefaultUserID` calls for `Telemetry.identify/reset` |
-| **Ariman** | SDK present, **never initialized** | add `Telemetry.start(appID:)` to wire it up, or leave the placeholder ID and it stays a safe no-op |
+| **Sextant** | migrated (git URL `from: 1.0.0`) | commit its `Package.resolved` |
+| **ThenCam** | mid-migration, uncommitted, uses a **local path** reference | switch to the git URL before committing, or Xcode Cloud breaks |
+| **Svamp** | uses `path: ../AppTelemetry` | switch to the git URL before Xcode Cloud onboarding |
+| **Lunker** | `TelemetryDeck.initialize` (`SwiftClient` 2.14.1, `9F07E2B9-…`) | `Telemetry.start(appID:)`; delete `Models/AppLog.swift`; drop direct SDK ref |
+| **Stokked** | `Analytics.start()` wrapper (`SwiftSDK`, `721F6963-…`) | `Telemetry.start(appID: "721F6963-…")`; delete `AnalyticsService.swift`; drop direct SDK ref |
+| **Contrarian** | `TelemetryDeck.initialize` + `updateDefaultUserID` in `AppState` (`SwiftSDK`) | `Telemetry.start(appID: Config.telemetryDeckAppID)`; swap the 3 `updateDefaultUserID` calls for `Telemetry.identify/reset`; drop direct SDK ref |
+| **Otta** | TelemetryDeck direct (`SwiftSDK`) | same pattern |
+| **Ariman**, **Equinox** | SDK present (`SwiftClient`); Ariman **never initialized** | add `Telemetry.start(appID:)`, or leave the placeholder ID and it stays a safe no-op; drop direct SDK ref |
 
 The `Signal` enum is where naming converges — migrate camelCase/`App.launched`
 call sites to the dot-style constants, and promote any name that recurs across
 apps into `Signal.swift`.
+
+## Privacy
+
+- `AppLog.reportError` logs category/domain/code publicly and the full error
+  description as `.private`; TelemetryDeck gets category/domain/code only.
+- `Telemetry.identify` sends the Supabase user UUID (hashed client-side by
+  TelemetryDeck). Apps that call it must declare analytics data as linked to
+  the user in their App Privacy label and `PrivacyInfo.xcprivacy`.
+
+## Development
+
+`swift test` (Swift Testing; needs Xcode 16+ / Swift 6 toolchain).
+
+## Releasing
+
+Changes since `1.0.0` (opt-out, thread safety, `SwiftSDK` URL, no SDK
+re-export, private error details) are unreleased. Tag **1.1.0** after commit
+and bump consumers' `from:` to pick them up. Note that consumers still on
+`1.0.0` get the old `SwiftClient` identity.
