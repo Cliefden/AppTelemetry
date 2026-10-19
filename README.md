@@ -59,7 +59,7 @@ the app's own repo, so a local `path: ../AppTelemetry` (or Xcode's
 packages:
   AppTelemetry:
     url: https://github.com/Cliefden/AppTelemetry.git
-    from: "1.0.0"   # use 1.1.0 once tagged (opt-out, SwiftSDK URL)
+    from: "2.0.0"
 targets:
   MyApp:
     dependencies:
@@ -132,7 +132,10 @@ apps into `Signal.swift`.
 
 ## Releasing
 
-Changes since `1.0.0` (opt-out, thread safety, `SwiftSDK` URL, no SDK
-re-export, private error details) are unreleased. Tag **1.1.0** after commit
-and bump consumers' `from:` to pick them up. Note that consumers still on
-`1.0.0` get the old `SwiftClient` identity.
+**2.0.0** (2026-10-19) — opt-out, thread safety, `SwiftSDK` URL, private
+error details, and two breaking changes: TelemetryDeck is **no longer
+re-exported** (`import AppTelemetry` no longer exposes TelemetryDeck types) and
+user identity goes through `Telemetry.identify/reset`. It is a major bump so
+apps on `from: "1.0.0"` keep resolving 1.x until they opt in by moving to
+`from: "2.0.0"` (and dropping any direct TelemetryDeck reference — see above).
+Consumers still on `1.0.0` get the old `SwiftClient` identity.
