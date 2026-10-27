@@ -266,6 +266,15 @@ the dashboard needs a note (or keep the app's old helper for that one call).
 
 ## Changelog
 
+### 2.1.1 (2026-10-27)
+
+Fix: opting out mid-session (`setOptedOut(true)`) now also stops the
+TelemetryDeck SDK's own automatic session/retention signals, by setting
+`analyticsDisabled` on the live SDK configuration. Previously only signals sent
+through `Telemetry.signal` stopped; the SDK's internal ones continued until the
+next launch. Opting back in re-enables the running SDK. (Found during Ariman's
+migration from its hand-rolled opt-out, which terminated the SDK.)
+
 ### 2.1.0 (2026-10-27)
 
 Additive — every 2.0 call site compiles unchanged.

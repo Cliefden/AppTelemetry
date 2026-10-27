@@ -35,7 +35,10 @@ let package = Package(
         ),
         .testTarget(
             name: "AppTelemetryTests",
-            dependencies: ["AppTelemetry"]
+            dependencies: [
+                "AppTelemetry",
+                .product(name: "TelemetryDeck", package: "SwiftSDK"),
+            ]
         ),
     ]
 )

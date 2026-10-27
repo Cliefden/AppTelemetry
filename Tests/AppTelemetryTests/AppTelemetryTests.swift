@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import TelemetryDeck
 @testable import AppTelemetry
 
 // These tests touch process-global state (Telemetry's start state and the
@@ -52,6 +53,16 @@ struct TelemetryTests {
         #expect(Telemetry.configuredAppID == "AAAAAAAA-0000-0000-0000-000000000001")
         #expect(!Telemetry.isEnabled)
         UserDefaults.standard.removeObject(forKey: Telemetry.optOutDefaultsKey)
+    }
+
+    // A standalone Config does not initialize the SDK, so this stays offline.
+    @Test func optOutDisablesAndReEnablesALiveSDKConfig() {
+        let config = TelemetryDeck.Config(appID: "AAAAAAAA-0000-0000-0000-000000000003")
+        #expect(!config.analyticsDisabled)
+        Telemetry.applyOptOut(true, to: config)
+        #expect(config.analyticsDisabled)
+        Telemetry.applyOptOut(false, to: config)
+        #expect(!config.analyticsDisabled)
     }
 
     @Test func concurrentStartIsSafe() async {

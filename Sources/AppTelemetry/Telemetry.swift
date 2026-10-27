@@ -34,6 +34,10 @@ public enum Telemetry {
         /// Explicit TelemetryDeck test-mode override resolved by `start`
         /// (`nil` = the SDK default, i.e. test mode in DEBUG builds only).
         var testMode: Bool?
+        /// The live SDK configuration once initialized. Opting out flips its
+        /// `analyticsDisabled`, which the SDK checks on every send — including
+        /// its own automatic session signals, which bypass `signal(_:_:)`.
+        var config: TelemetryDeck.Config?
     }
 
     /// Test hook: when set, receives every `signal(_:_:)` call (before the
@@ -57,12 +61,24 @@ public enum Telemetry {
 
     /// Persist the user's analytics choice. Bind a Settings toggle to this.
     ///
-    /// Opting out stops all further signals immediately. Opting back in
-    /// initializes the SDK if `start(appID:)` already ran with a real ID while
-    /// the user was opted out.
+    /// Opting out stops all further signals immediately — the app's and the
+    /// SDK's own automatic session/retention signals. Opting back in
+    /// re-enables a running SDK, or initializes it if `start(appID:)` already
+    /// ran with a real ID while the user was opted out.
     public static func setOptedOut(_ optedOut: Bool) {
         UserDefaults.standard.set(optedOut, forKey: optOutDefaultsKey)
-        if !optedOut { initializeSDKIfNeeded(sendLaunchSignal: false) }
+        if let config = state.withLock({ $0.config }) {
+            applyOptOut(optedOut, to: config)
+        } else if !optedOut {
+            initializeSDKIfNeeded(sendLaunchSignal: false)
+        }
+    }
+
+    /// Mirror the opt-out onto a live SDK configuration. (Not
+    /// `TelemetryDeck.terminate()`: its singleton session tracker keeps
+    /// emitting and would then hit an un-initialized manager.)
+    static func applyOptOut(_ optedOut: Bool, to config: TelemetryDeck.Config) {
+        config.analyticsDisabled = optedOut
     }
 
     /// `true` when signals are actually being sent: the SDK is initialized with
@@ -125,6 +141,7 @@ public enum Telemetry {
         let (appID, testMode) = pending
         let config = TelemetryDeck.Config(appID: appID)
         if let testMode { config.testMode = testMode }
+        state.withLock { $0.config = config }
         TelemetryDeck.initialize(config: config)
         if sendLaunchSignal {
             signal(Signal.appLaunched, ["daysSinceInstall": TelemetryBuckets.daysSinceInstall()])
