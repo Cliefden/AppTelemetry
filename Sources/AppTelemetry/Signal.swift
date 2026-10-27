@@ -24,6 +24,44 @@ public enum Signal {
     public static let premiumRestored = "premium.restored"
     public static let purchaseFailed = "purchase.failed"
 
+    // Promoted in 2.1 — each name already appears in at least two apps
+    // (survey 2026-10-27). Names are unchanged so dashboards keep continuity.
+
+    /// `{source}` — Sextant, Equinox, Otta.
+    public static let paywallDismissed = "paywall.dismissed"
+    /// Equinox, Sextant.
+    public static let purchaseCancelled = "purchase.cancelled"
+    /// Lunker, Sextant, Equinox.
+    public static let trialExpired = "trial.expired"
+
+    /// Lunker, Sextant, Equinox.
+    public static let onboardingStarted = "onboarding.started"
+    /// `{step}` — Sextant, Equinox, Otta.
+    public static let onboardingStep = "onboarding.step"
+    /// Lunker, Sextant, Equinox, Otta.
+    public static let onboardingCompleted = "onboarding.completed"
+
+    /// `{screen}` — emitted by `Telemetry.screen(_:)`. Lunker, Sextant, Otta, Equinox.
+    public static let screenViewed = "screen.viewed"
+    /// `{key, value}` — emitted by `Telemetry.settingChanged(_:_:)`. Lunker, Sextant, Equinox.
+    public static let settingChanged = "setting.changed"
+    /// `{permission, context?}` — emitted by `Telemetry.permissionPrompted`. Lunker, Otta.
+    public static let permissionPrompted = "permission.prompted"
+    /// `{permission, result, context?}` — emitted by `Telemetry.permissionResult`. Lunker, Sextant, Otta, Equinox.
+    public static let permissionResult = "permission.result"
+    /// `{kind}` — emitted by `NotificationOpenTracker`. Lunker, Sextant, Equinox.
+    public static let notificationOpened = "notification.opened"
+
+    // Form funnel (emitted by FormFunnel — generalized from Ariman)
+    public static let formStarted = "form.started"
+    public static let formCompleted = "form.completed"
+    public static let formFailed = "form.failed"
+    public static let formAbandoned = "form.abandoned"
+
     // Errors (emitted by AppLog.reportError — see AppLog.swift)
     public static let errorOccurred = "error.occurred"
+
+    /// `error.<domain> {code, …}` — emitted by `Telemetry.error(_:_:_:)`, the
+    /// per-domain error convention used by Sextant, Otta, Ariman and Contrarian.
+    public static func error(_ domain: String) -> String { "error.\(domain)" }
 }

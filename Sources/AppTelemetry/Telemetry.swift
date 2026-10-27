@@ -31,7 +31,15 @@ public enum Telemetry {
         var appID: String?
         /// Whether `TelemetryDeck.initialize` has run (at most once per process).
         var sdkInitialized = false
+        /// Explicit TelemetryDeck test-mode override resolved by `start`
+        /// (`nil` = the SDK default, i.e. test mode in DEBUG builds only).
+        var testMode: Bool?
     }
+
+    /// Test hook: when set, receives every `signal(_:_:)` call (before the
+    /// enabled guard), so tests can assert on names/parameters without the SDK.
+    typealias SignalSink = @Sendable (String, [String: String]) -> Void
+    static let signalSink = OSAllocatedUnfairLock<SignalSink?>(initialState: nil)
 
     private static let state = OSAllocatedUnfairLock(initialState: State())
 
@@ -72,9 +80,20 @@ public enum Telemetry {
     /// only the first real app ID is used.
     ///
     /// - Parameters:
+    /// The first call also records the install-date anchor (`installDate`,
+    /// see `Telemetry+Helpers.swift`). That is local state only, so it happens
+    /// even for a placeholder ID or an opted-out user.
+    ///
+    /// - Parameters:
     ///   - appID: TelemetryDeck app ID (dashboard → Create App → App ID).
-    ///   - sendLaunchSignal: fire `Signal.appLaunched` right after init. Default `true`.
-    public static func start(appID: String, sendLaunchSignal: Bool = true) {
+    ///   - sendLaunchSignal: fire `Signal.appLaunched {daysSinceInstall}` right
+    ///     after init. Default `true`.
+    ///   - testMode: force TelemetryDeck test mode on/off. `nil` (default) turns
+    ///     it on for bundle IDs ending in `.dev` / `.staging` (side-by-side
+    ///     dogfood channels) and otherwise keeps the SDK default (test mode in
+    ///     DEBUG builds only).
+    public static func start(appID: String, sendLaunchSignal: Bool = true, testMode: Bool? = nil) {
+        recordInstallDateIfNeeded()
         guard idLooksReal(appID) else {
             AppLog.telemetry.info("TelemetryDeck app ID not set — analytics disabled")
             return
@@ -82,6 +101,7 @@ public enum Telemetry {
         let accepted = state.withLock { s -> Bool in
             guard s.appID == nil else { return false }
             s.appID = appID
+            s.testMode = resolveTestMode(testMode, bundleID: Bundle.main.bundleIdentifier)
             return true
         }
         guard accepted else {
@@ -96,15 +116,37 @@ public enum Telemetry {
     }
 
     private static func initializeSDKIfNeeded(sendLaunchSignal: Bool) {
-        let appID = state.withLock { s -> String? in
+        let pending = state.withLock { s -> (String, Bool?)? in
             guard !s.sdkInitialized, let id = s.appID else { return nil }
             s.sdkInitialized = true
-            return id
+            return (id, s.testMode)
         }
-        guard let appID else { return }
-        TelemetryDeck.initialize(config: TelemetryDeck.Config(appID: appID))
-        if sendLaunchSignal { signal(Signal.appLaunched) }
+        guard let pending else { return }
+        let (appID, testMode) = pending
+        let config = TelemetryDeck.Config(appID: appID)
+        if let testMode { config.testMode = testMode }
+        TelemetryDeck.initialize(config: config)
+        if sendLaunchSignal {
+            signal(Signal.appLaunched, ["daysSinceInstall": TelemetryBuckets.daysSinceInstall()])
+        }
     }
+
+    /// `true` for side-by-side dogfood channels whose bundle ID ends in
+    /// `.dev` or `.staging` (Celiador's convention).
+    static func isTestChannel(bundleID: String?) -> Bool {
+        guard let id = bundleID?.lowercased() else { return false }
+        return id.hasSuffix(".dev") || id.hasSuffix(".staging")
+    }
+
+    /// Explicit override wins; otherwise force test mode on for test channels
+    /// and leave the SDK default (`nil`) everywhere else.
+    static func resolveTestMode(_ explicit: Bool?, bundleID: String?) -> Bool? {
+        if let explicit { return explicit }
+        return isTestChannel(bundleID: bundleID) ? true : nil
+    }
+
+    /// The test-mode override `start` resolved (`nil` = SDK default).
+    public static var testModeOverride: Bool? { state.withLock { $0.testMode } }
 
     // MARK: - Sending
 
@@ -112,6 +154,7 @@ public enum Telemetry {
     /// Pass a `Signal` constant (`Telemetry.signal(Signal.trialStarted)`) for the
     /// shared vocabulary, or a raw string for one-offs.
     public static func signal(_ name: String, _ parameters: [String: String] = [:]) {
+        if let sink = signalSink.withLock({ $0 }) { sink(name, parameters) }
         guard isEnabled else { return }
         TelemetryDeck.signal(name, parameters: parameters)
     }

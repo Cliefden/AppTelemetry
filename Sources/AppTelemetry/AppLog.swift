@@ -42,7 +42,13 @@ public enum AppLog {
     /// is marked `.private`, so it is redacted in sysdiagnoses unless a debugger
     /// or logging profile is attached. TelemetryDeck receives only `category`,
     /// `domain`, and `code` — never the localized message.
+    ///
+    /// Since 2.1, cancellations (`TelemetryErrors.isCancellation`: a torn-down
+    /// `.task`, a superseded request, a dismissed Sign in with Apple sheet or
+    /// StoreKit purchase) are not failures and are neither logged nor counted —
+    /// the behaviour Lunker's and Sextant's own copies already had.
     public static func reportError(_ category: String, _ error: Error, logger: Logger = app) {
+        guard !TelemetryErrors.isCancellation(error) else { return }
         let ns = error as NSError
         logger.error("\(category, privacy: .public): \(ns.domain, privacy: .public) \(ns.code, privacy: .public) — \(String(describing: ns), privacy: .private)")
         Telemetry.signal(Signal.errorOccurred, errorParameters(category, ns))
