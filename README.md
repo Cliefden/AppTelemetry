@@ -266,7 +266,7 @@ the dashboard needs a note (or keep the app's old helper for that one call).
 
 ## Changelog
 
-### 2.1.0 (unreleased)
+### 2.1.0 (2026-10-27)
 
 Additive — every 2.0 call site compiles unchanged.
 
